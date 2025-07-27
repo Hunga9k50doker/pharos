@@ -1,5 +1,5 @@
 const axios = require("axios");
-const settings = require("./config/config");
+const settings = require("../config/config");
 
 const urlChecking = "https://raw.githubusercontent.com/Hunga9k50doker/APIs-checking/refs/heads/main/endpoints.json";
 
