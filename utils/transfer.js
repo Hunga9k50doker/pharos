@@ -112,10 +112,10 @@ class TransferService {
 
       const tokenStruct = [1, "0x0000000000000000000000000000000000000000"];
 
-      const recipientStruct = ["x", recipient, amount, []];
+      const recipientStruct = ["x", recipient, amountIn, []];
 
       const tx = await tipContract.tip(tokenStruct, recipientStruct, {
-        value: amount,
+        value: amountIn,
       });
 
       await tx.wait(3);

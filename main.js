@@ -6,7 +6,7 @@ const { HttpsProxyAgent } = require("https-proxy-agent");
 const readline = require("readline");
 const user_agents = require("./config/userAgents");
 const settings = require("./config/config.js");
-const { sleep, loadData, getRandomNumber, isTokenExpired, saveJson, getRandomElement } = require("./utils/utils.js");
+const { sleep, loadData, getRandomNumber, saveToken, isTokenExpired, saveJson, getRandomElement } = require("./utils/utils.js");
 const { Worker, isMainThread, parentPort, workerData } = require("worker_threads");
 const { checkBaseUrl } = require("./utils/checkAPI");
 const { headers } = require("./core/header.js");
@@ -602,7 +602,7 @@ Issued At: ${time}`;
             let resSend = null;
             if (option == "twitter") {
               let xUsername = getRandomElement(usernameXs) || "@cbcrypto007";
-              xUsername.startsWith("@") ? usernameXs : `@${usernameXs}`;
+              String(xUsername).startsWith("@") ? usernameXs : `@${usernameXs}`;
               this.log(`[${current}/${limit}] Sending ${amount} PHRS to ${xUsername}`);
               resSend = await transferService.sendTokenToX({ recipient: xUsername, amount });
             } else {
