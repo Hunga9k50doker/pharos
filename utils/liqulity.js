@@ -11,11 +11,6 @@ const networkConfig = {
 
 const LP_ROUTER_ADDRESS = "0xf8a1d4ff0f9b9af7ce58e1fc1833688f3bfd6115";
 const USDC_POOL_ADDRESS = "0x0373a059321219745aee4fad8a942cf088be3d0e";
-const USDT_POOL_ADDRESS = "0x70118b6eec45329e0534d849bc3e588bb6752527";
-const WPHRS_ADDRESS = "0x76aaada469d23216be5f7c596fa25f282ff9b364";
-const USDC_ADDRESS = "0xad902cf99c2de2f1ba5ec4d642fd7e49cae9ee37";
-const USDT_ADDRESS = "0xed59de2d7ad9c043442e381231ee3646fc3c2939";
-
 const LP_ROUTER_ABI = [
   "function createAndInitializePoolIfNecessary(address token0, address token1, uint24 fee, uint160 sqrtPriceX96) external payable returns (address pool)",
   "function mint(tuple(address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint256 amount0Desired, uint256 amount1Desired, uint256 amount0Min, uint256 amount1Min, address recipient, uint256 deadline)) external payable returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)",
@@ -289,8 +284,6 @@ class AddLpService {
   async performMultipleLPs(prams) {
     let { provider, wallet } = prams;
     let lpCount = settings.NUMBER_ADDLP;
-    const token0 = WPHRS_ADDRESS;
-    const token1 = USDC_ADDRESS;
     const poolAddress = USDC_POOL_ADDRESS;
     try {
       const pool = new ethers.Contract(poolAddress, POOL_ABI, provider);
@@ -299,8 +292,6 @@ class AddLpService {
 
       const token0Balance = await this.getTokenBalance(actualToken0, wallet.address, provider);
       const token1Balance = await this.getTokenBalance(actualToken1, wallet.address, provider);
-      const token0Decimals = await this.getTokenDecimals(actualToken0, provider);
-      const token1Decimals = await this.getTokenDecimals(actualToken1, provider);
 
       if (token0Balance === 0n || token1Balance === 0n) {
         return {
@@ -362,4 +353,4 @@ class AddLpService {
   }
 }
 
-module.exports = { AddLpService };
+module.exports = AddLpService;

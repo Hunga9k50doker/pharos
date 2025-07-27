@@ -10,7 +10,7 @@ I am not `responsible` for the possibility of an account being `banned`!
 
 ## 📎 Node cli version Script features
 
-- Auto send
+- Auto send (address or twitter)
 - Auto faucet
 - Auto swap
 - Auto add liquidity

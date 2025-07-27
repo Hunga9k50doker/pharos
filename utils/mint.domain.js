@@ -55,7 +55,7 @@ class MintNameService {
   generateDomainFromWallet() {
     try {
       const address = this.wallet.address.toLowerCase().replace("0x", "");
-      const randomChars = generateRandomChars(3);
+      const randomChars = generateRandomChars(6);
       const last9Chars = address.slice(-9);
       const domainName = randomChars + last9Chars;
       return domainName;

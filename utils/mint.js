@@ -1,5 +1,8 @@
 const { ethers } = require("ethers");
 const settings = require("../config/config");
+const { ZENTRA_BADGE_ABI } = require("./ABI");
+
+const AQUAFLUX_NFT_ABI = ["function claimTokens()", "function mint(uint256 nftType, uint256 expiresAt, bytes signature)"];
 
 const EXPOLER = `${settings.EXPOLER}/tx/`;
 const BYTES_TEMPLATE =
@@ -78,66 +81,72 @@ class MintService {
         tx: null,
         success: false,
         stop: true,
-        message: `Error mint gotchip: ${error.message}`,
+        message: `Error mint gotchip: ${error.shortMessage ?? error.message}`,
       };
     }
   }
 
-  async mintGrandline() {
-    // try {
-    //   const wallet = this.wallet;
-    //   const provider = this.provider;
-    //   const balance = await provider.getBalance(wallet.address);
-    //   const balanceInEther = ethers.formatEther(balance);
-    //   if (parseFloat(balanceInEther) < 1.0005) {
-    //     return {
-    //       tx: null,
-    //       success: false,
-    //       stop: true,
-    //       message: "Insufficient PHRS for mint",
-    //     };
-    //   }
-    //   const pendingNonce = await provider.getTransactionCount(wallet.address, "pending");
-    //   const latestNonce = await provider.getTransactionCount(wallet.address, "latest");
-    //   if (pendingNonce > latestNonce) {
-    //     return {
-    //       tx: null,
-    //       success: false,
-    //       stop: false,
-    //       message: "There are pending transactions. Please wait for them to be completed.",
-    //     };
-    //   }
-    //   const params = {
-    //     to: "0x1da9f40036bee3fda37ddd9bff624e1125d8991d",
-    //     data: "0x84bb1e42",
-    //     gasPrice: ethers.parseUnits("1.3", "gwei"),
-    //     gasLimit: 1000000,
-    //     nonce: latestNonce,
-    //     value: ethers.parseEther("1"),
-    //   };
-    //   const tx = await wallet.sendTransaction(params);
-    //   await tx.wait(3);
-    //   return {
-    //     tx: tx.hash,
-    //     success: true,
-    //     message: `Mint grandline successful! Transaction hash: ${EXPOLER}${tx.hash}`,
-    //   };
-    // } catch (error) {
-    //   if (error.code === "NONCE_EXPIRED" || error.message.includes("TX_REPLAY_ATTACK")) {
-    //     return {
-    //       tx: null,
-    //       success: false,
-    //       stop: true,
-    //       message: "Nonce conflict detected. Please retry the transaction.",
-    //     };
-    //   }
-    //   return {
-    //     tx: null,
-    //     success: false,
-    //     stop: true,
-    //     message: `Error mint grandline: ${error.message}`,
-    //   };
-    // }
+  async mintZentra() {
+    try {
+      const wallet = this.wallet;
+      const provider = this.provider;
+      const balance = await provider.getBalance(wallet.address);
+      const balanceInEther = ethers.formatEther(balance);
+
+      const feeData = await provider.getFeeData();
+      if (balanceInEther < 1.0005) {
+        return {
+          tx: null,
+          success: false,
+          stop: true,
+          message: `Insufficient PHRS for mint. Need min ${1.0005} PHRS, have ${balanceInEther}`,
+        };
+      }
+      const pendingNonce = await provider.getTransactionCount(wallet.address, "pending");
+      const latestNonce = await provider.getTransactionCount(wallet.address, "latest");
+      if (pendingNonce > latestNonce) {
+        return {
+          tx: null,
+          success: false,
+          stop: false,
+          message: "There are pending transactions. Please wait for them to be completed.",
+        };
+      }
+      const calldata = this.createCalldata(wallet.address);
+      const valueInWei = ethers.parseEther("1");
+
+      // Send transaction
+      const tx = await wallet.sendTransaction({
+        to: "0xe71188df7be6321ffd5aaa6e52e6c96375e62793",
+        data: calldata,
+        gasPrice: feeData.gasPrice,
+        gasLimit: 1000000000,
+        nonce: latestNonce,
+        value: valueInWei,
+      });
+
+      await tx.wait(3);
+      return {
+        tx: tx.hash,
+        success: true,
+        message: `Mint Zentra Badge successful! Transaction hash: ${EXPOLER}${tx.hash}`,
+      };
+    } catch (error) {
+      if (error.code === "NONCE_EXPIRED" || (error.message && error.message.includes("TX_REPLAY_ATTACK"))) {
+        return {
+          tx: null,
+          success: false,
+          stop: true,
+          message: "Nonce conflict detected. Please retry the transaction.",
+        };
+      }
+      return {
+        tx: null,
+        success: false,
+        stop: true,
+        message: `Error mint Zentra Badge: ${error.shortMessage ?? error.message}`,
+      };
+    }
   }
 
   async mintPharosBadge() {
@@ -202,7 +211,7 @@ class MintService {
         tx: null,
         success: false,
         stop: true,
-        message: `Error mint pharos: ${error.message}`,
+        message: `Error mint pharos: ${error.shortMessage ?? error.message}`,
       };
     }
   }
@@ -269,7 +278,7 @@ class MintService {
         tx: null,
         success: false,
         stop: true,
-        message: `Error mint faros: ${error.message}`,
+        message: `Error mint faros: ${error.shortMessage ?? error.message}`,
       };
     }
   }

@@ -21,6 +21,7 @@ const settings = {
   TOKENS_FAUCET: process.env.TOKENS_FAUCET ? JSON.parse(process.env.TOKENS_FAUCET.replace(/'/g, '"')) : [],
   TASKS_ID: process.env.TASKS_ID ? JSON.parse(process.env.TASKS_ID.replace(/'/g, '"')) : [],
   LIST_NFT_MINT: process.env.LIST_NFT_MINT ? JSON.parse(process.env.LIST_NFT_MINT.replace(/'/g, '"')) : [],
+  OPTIONS_SEND: process.env.OPTIONS_SEND ? JSON.parse(process.env.OPTIONS_SEND.replace(/'/g, '"')) : [],
 
   AUTO_TASK: process.env.AUTO_TASK ? process.env.AUTO_TASK.toLowerCase() === "true" : false,
   AUTO_CHALLENGE: process.env.AUTO_CHALLENGE ? process.env.AUTO_CHALLENGE.toLowerCase() === "true" : false,
@@ -39,7 +40,7 @@ const settings = {
   AUTO_ADDLP: process.env.AUTO_ADDLP ? process.env.AUTO_ADDLP.toLowerCase() === "true" : false,
 
   ADVANCED_ANTI_DETECTION: process.env.ADVANCED_ANTI_DETECTION ? process.env.ADVANCED_ANTI_DETECTION.toLowerCase() === "true" : false,
-  AUTO_TAP: process.env.AUTO_TAP ? process.env.AUTO_TAP.toLowerCase() === "true" : false,
+  AUTO_AQUAFLUX: process.env.AUTO_AQUAFLUX ? process.env.AUTO_AQUAFLUX.toLowerCase() === "true" : false,
   USE_PROXY: process.env.USE_PROXY ? process.env.USE_PROXY.toLowerCase() === "true" : false,
   AUTO_DAILY_COMBO: process.env.AUTO_DAILY_COMBO ? process.env.AUTO_DAILY_COMBO.toLowerCase() === "true" : false,
   AUTO_FAUCET: process.env.AUTO_FAUCET ? process.env.AUTO_FAUCET.toLowerCase() === "true" : false,

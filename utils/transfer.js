@@ -2,6 +2,8 @@ const { ethers } = require("ethers");
 const settings = require("../config/config");
 
 const EXPOLER = `${settings.EXPOLER}/tx/`;
+const PRIMUS_TIP_CONTRACT = "0xd17512b7ec12880bd94eca9d774089ff89805f02";
+const PRIMUS_TIP_ABI = ["function tip((uint32,address) token, (string,string,uint256,uint256[]) recipient)"];
 
 class TransferService {
   constructor({ wallet, provider }) {
@@ -59,6 +61,69 @@ class TransferService {
         tx: tx.hash,
         success: true,
         message: `Send ${amount} PHRS successful! Transaction hash: ${EXPOLER}${tx.hash}`,
+      };
+    } catch (error) {
+      if (error.code === "NONCE_EXPIRED" || error.message.includes("TX_REPLAY_ATTACK")) {
+        return {
+          tx: null,
+          success: false,
+          stop: false,
+          message: "Nonce conflict detected. Please retry the transaction.",
+        };
+      }
+      return {
+        tx: null,
+        success: false,
+        stop: true,
+        message: `Error Send: ${error.message}`,
+      };
+    }
+  }
+
+  async sendTokenToX({ recipient, amount }) {
+    try {
+      const wallet = this.wallet;
+      const provider = this.provider;
+      const amountIn = ethers.parseEther(amount.toString());
+      const balance = await provider.getBalance(wallet.address);
+
+      const balanceInEther = ethers.formatEther(balance);
+
+      if (parseFloat(balanceInEther) < parseFloat(amount) + 0.0005) {
+        return {
+          tx: null,
+          success: false,
+          stop: true,
+          message: "Insufficient PHRS for transfer",
+        };
+      }
+
+      const minBalance = amountIn + ethers.parseEther("0.000021");
+      if (balance < minBalance) {
+        return {
+          tx: null,
+          success: false,
+          stop: false,
+          message: `Insufficient PHRS. Need at least ${ethers.formatEther(minBalance)} PHRS, have ${ethers.formatEther(balance)} PHRS.`,
+        };
+      }
+
+      const tipContract = new ethers.Contract(PRIMUS_TIP_CONTRACT, PRIMUS_TIP_ABI, wallet);
+
+      const tokenStruct = [1, "0x0000000000000000000000000000000000000000"];
+
+      const recipientStruct = ["x", recipient, amount, []];
+
+      const tx = await tipContract.tip(tokenStruct, recipientStruct, {
+        value: amount,
+      });
+
+      await tx.wait(3);
+
+      return {
+        tx: tx.hash,
+        success: true,
+        message: `Send ${amount} PHRS to ${recipient} successful! Transaction hash: ${EXPOLER}${tx.hash}`,
       };
     } catch (error) {
       if (error.code === "NONCE_EXPIRED" || error.message.includes("TX_REPLAY_ATTACK")) {

@@ -6,21 +6,24 @@ const { HttpsProxyAgent } = require("https-proxy-agent");
 const readline = require("readline");
 const user_agents = require("./config/userAgents");
 const settings = require("./config/config.js");
-const { sleep, loadData, getRandomNumber, saveToken, isTokenExpired, saveJson, getRandomElement } = require("./utils/utils.js");
+const { sleep, loadData, getRandomNumber, isTokenExpired, saveJson, getRandomElement } = require("./utils/utils.js");
 const { Worker, isMainThread, parentPort, workerData } = require("worker_threads");
-const { checkBaseUrl } = require("./checkAPI");
+const { checkBaseUrl } = require("./utils/checkAPI");
 const { headers } = require("./core/header.js");
 const { showBanner } = require("./core/banner.js");
 const localStorage = require("./localStorage.json");
 const ethers = require("ethers");
 const { solveCaptcha } = require("./utils/captcha.js");
 const { checkBalance } = require("./utils/contract.js");
-const { AddLpService } = require("./utils/liqulity.js");
 const wallets = loadData("wallets.txt");
+const usernameXs = loadData("usernameXs.txt");
+
+const AddLpService = require("./utils/liqulity.js");
 const TransferService = require("./utils/transfer.js");
 const MintService = require("./utils/mint.js");
 const SwapService = require("./utils/swap.js");
 const MintNameService = require("./utils/mint.domain.js");
+const AquaFluxService = require("./utils/aquaflux.js");
 
 // const querystring = require("querystring");
 class ClientAPI {
@@ -164,16 +167,20 @@ class ClientAPI {
       refreshToken: null,
     }
   ) {
-    const { retries, isAuth, extraHeaders, refreshToken } = options;
+    const initOptions = {
+      retries: 2,
+      isAuth: false,
+      extraHeaders: {},
+      refreshToken: null,
+      ...options,
+    };
+    const { retries, isAuth, extraHeaders, refreshToken } = initOptions;
 
     const headers = {
       ...this.headers,
+      ...(isAuth || !this.token ? {} : { authorization: `Bearer ${this.token}` }),
       ...extraHeaders,
     };
-
-    if (!isAuth && this.token) {
-      headers["authorization"] = `Bearer ${this.token}`;
-    }
 
     let proxyAgent = null;
     if (settings.USE_PROXY) {
@@ -194,12 +201,8 @@ class ClientAPI {
           ...(proxyAgent ? { httpsAgent: proxyAgent, httpAgent: proxyAgent } : {}),
           ...(method.toLowerCase() !== "get" ? { data: data } : {}),
         });
-        if (response?.data?.code == 0 || response?.data?.msg == "ok" || response?.data?.message == "ok") {
-          if (response?.data?.data) return { status: response.status, success: true, data: response.data.data };
-          return { success: true, data: response.data, status: response.status };
-        } else {
-          return { success: false, data: response.data, error: response.data?.msg || response.data, status: response.status };
-        }
+        if (response?.data?.data) return { status: response.status, success: true, data: response.data.data };
+        return { success: true, data: response.data, status: response.status };
       } catch (error) {
         errorMessage = error?.response?.data?.error || error.message;
         errorStatus = error.status;
@@ -253,8 +256,35 @@ class ClientAPI {
   }
 
   async auth() {
-    const signedMessage = await this.wallet.signMessage("pharos");
-    return this.makeRequest(`${this.baseURL}/user/login?address=${this.itemData.address}&signature=${signedMessage}&invite_code=${settings.REF_CODE}`, "post", null, { isAuth: true });
+    const time = new Date().toISOString();
+    const mess = `testnet.pharosnetwork.xyz wants you to sign in with your Ethereum account:
+${this.itemData.address}
+
+I accept the Pharos Terms of Service: testnet.pharosnetwork.xyz/privacy-policy/Pharos-PrivacyPolicy.pdf
+
+URI: https://testnet.pharosnetwork.xyz
+
+Version: 1
+
+Chain ID: 688688
+
+Nonce: 555
+
+Issued At: ${time}`;
+
+    const signedMessage = await this.wallet.signMessage(mess);
+    const payload = {
+      address: this.itemData.address,
+      signature: signedMessage,
+      wallet: "MetaMask",
+      nonce: "555",
+      chain_id: "688688",
+      timestamp: time,
+      domain: "testnet.pharosnetwork.xyz",
+      invite_code: settings.REF_CODE,
+    };
+
+    return this.makeRequest(`${this.baseURL}/user/login`, "post", payload, { isAuth: true });
   }
 
   async getUserData() {
@@ -265,11 +295,16 @@ class ClientAPI {
     return this.makeRequest(`${this.baseURL}/sign/status?address=${this.itemData.address}`, "get");
   }
   async checkin() {
-    return this.makeRequest(`${this.baseURL}/sign/in?address=${this.itemData.address}`, "post");
+    return this.makeRequest(`${this.baseURL}/sign/in`, "post", {
+      address: this.itemData.address,
+    });
   }
 
   async verifyTask(id) {
-    return this.makeRequest(`${this.baseURL}/task/verify?address=${this.itemData.address}&task_id=${id}`, "post", null);
+    return this.makeRequest(`${this.baseURL}/task/verify`, "post", {
+      address: address,
+      task_id: id,
+    });
   }
 
   async verifyTaskWithHash({ address, taskId, txHash }) {
@@ -447,9 +482,9 @@ class ClientAPI {
       if (userData?.success) break;
       retries++;
     } while (retries < 1 && userData.status !== 400);
-    const WPHRS_ADDRESS = "0x3019B247381c850ab53Dc0EE53bCe7A07Ea9155f";
-    const USDC_ADDRESS = "0x72df0bcd7276f2dFbAc900D1CE63c272C4BCcCED";
-    const USDT_ADDRESS = "0xD4071393f8716661958F766DF660033b3d35fD29";
+    const WPHRS_ADDRESS = "0x76aaada469d23216be5f7c596fa25f282ff9b364";
+    const USDC_ADDRESS = "0x72df0bcd7276f2dfbac900d1ce63c272c4bccced";
+    const USDT_ADDRESS = "0xd4071393f8716661958f766df660033b3d35fd29";
     const prams = {
       provider: this.provider,
       wallet: this.wallet,
@@ -525,6 +560,7 @@ class ClientAPI {
       wallet: this.wallet,
       provider: this.provider,
       log: (mess, type) => this.log(mess, type),
+      makeRequest: (url, method, data, options) => this.makeRequest(url, method, data, options),
     };
 
     if (settings.AUTO_SEND_ALL) {
@@ -549,6 +585,9 @@ class ClientAPI {
     if (settings.AUTO_SEND) {
       const transferService = new TransferService(prams);
       let limit = settings.NUMBER_SEND;
+      if (!settings.SEND_RANDOM) {
+        limit = wallets.length;
+      }
       let current = limit;
       while (current > 0) {
         let recipientAddress = wallets[limit - current];
@@ -557,10 +596,20 @@ class ClientAPI {
         }
         if (!recipientAddress) return;
         if (recipientAddress !== this.wallet.address) {
+          const option = getRandomElement(settings.OPTIONS_SEND);
           let amount = getRandomNumber(settings.AMOUNT_SEND[0], settings.AMOUNT_SEND[1], 4);
-          this.log(`[${current}/${limit}] Sending ${amount} PHRS to ${recipientAddress}`);
           try {
-            const resSend = await transferService.sendToken({ recipientAddress, amount });
+            let resSend = null;
+            if (option == "twitter") {
+              let xUsername = getRandomElement(usernameXs) || "@cbcrypto007";
+              xUsername.startsWith("@") ? usernameXs : `@${usernameXs}`;
+              this.log(`[${current}/${limit}] Sending ${amount} PHRS to ${xUsername}`);
+              resSend = await transferService.sendTokenToX({ recipient: xUsername, amount });
+            } else {
+              this.log(`[${current}/${limit}] Sending ${amount} PHRS to ${recipientAddress}`);
+              resSend = await transferService.sendToken({ recipientAddress, amount });
+            }
+
             if (resSend.success) {
               this.log(resSend.message, "success");
               await this.handleverifyTaskWithHash({ address: this.itemData.address, taskId: 103, txHash: resSend.tx });
@@ -583,9 +632,13 @@ class ClientAPI {
       }
     }
 
+    if (settings.AUTO_AQUAFLUX) {
+      const aquaFluxService = new AquaFluxService(prams);
+      const res = await aquaFluxService.executeAquaFluxFlow();
+    }
+
     if (settings.AUTO_MINT_DOMAIN) {
       this.log(`Starting mint domain...`, "info");
-
       const mintDomainService = new MintNameService(prams);
       const res = await mintDomainService.mintNames();
     }
@@ -613,6 +666,8 @@ class ClientAPI {
               result = await mintService.mintPharosBadge();
             } else if (nft == "faros_badge") {
               result = await mintService.mintFarosBadge();
+            } else if (nft == "zentra") {
+              result = await mintService.mintZentra();
             }
             if (result.success) {
               this.log(result.message, "success");
@@ -676,6 +731,8 @@ class ClientAPI {
 
       try {
         const result = await addlp.performMultipleLPs(prsLP);
+        // const result = await addlp.addLiquidity(prsLP);
+
         // if (result && result?.length > 0) {
         //   for (const tx of result) {
         //     await sleep(3);
