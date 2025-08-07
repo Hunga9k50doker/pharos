@@ -149,6 +149,69 @@ class MintService {
     }
   }
 
+  async mintSpout() {
+    try {
+      const wallet = this.wallet;
+      const provider = this.provider;
+      const balance = await provider.getBalance(wallet.address);
+      const balanceInEther = ethers.formatEther(balance);
+
+      const feeData = await provider.getFeeData();
+      if (balanceInEther < 1.0005) {
+        return {
+          tx: null,
+          success: false,
+          stop: true,
+          message: `Insufficient PHRS for mint. Need min ${1.0005} PHRS, have ${balanceInEther}`,
+        };
+      }
+      const pendingNonce = await provider.getTransactionCount(wallet.address, "pending");
+      const latestNonce = await provider.getTransactionCount(wallet.address, "latest");
+      if (pendingNonce > latestNonce) {
+        return {
+          tx: null,
+          success: false,
+          stop: false,
+          message: "There are pending transactions. Please wait for them to be completed.",
+        };
+      }
+      const calldata = this.createCalldata(wallet.address);
+      const valueInWei = ethers.parseEther("1");
+
+      // Send transaction
+      const tx = await wallet.sendTransaction({
+        to: "0x96381ed3fcfb385cbacfe6908159f0905b19767a",
+        data: calldata,
+        gasPrice: feeData.gasPrice,
+        gasLimit: 1000000000,
+        nonce: latestNonce,
+        value: valueInWei,
+      });
+
+      await tx.wait(3);
+      return {
+        tx: tx.hash,
+        success: true,
+        message: `Mint Spout NFT successful! Transaction hash: ${EXPOLER}${tx.hash}`,
+      };
+    } catch (error) {
+      if (error.code === "NONCE_EXPIRED" || (error.message && error.message.includes("TX_REPLAY_ATTACK"))) {
+        return {
+          tx: null,
+          success: false,
+          stop: true,
+          message: "Nonce conflict detected. Please retry the transaction.",
+        };
+      }
+      return {
+        tx: null,
+        success: false,
+        stop: true,
+        message: `Error Spout NFT Badge: ${error.shortMessage ?? error.message}`,
+      };
+    }
+  }
+
   async mintPharosBadge() {
     try {
       const wallet = this.wallet;
