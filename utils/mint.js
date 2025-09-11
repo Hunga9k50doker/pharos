@@ -1,8 +1,5 @@
 const { ethers } = require("ethers");
 const settings = require("../config/config");
-const { ZENTRA_BADGE_ABI } = require("./ABI");
-
-const AQUAFLUX_NFT_ABI = ["function claimTokens()", "function mint(uint256 nftType, uint256 expiresAt, bytes signature)"];
 
 const EXPOLER = `${settings.EXPOLER}/tx/`;
 const BYTES_TEMPLATE =
@@ -212,7 +209,70 @@ class MintService {
     }
   }
 
-  async mintPharosBadge() {
+  async mintOpenFi() {
+    try {
+      const wallet = this.wallet;
+      const provider = this.provider;
+      const balance = await provider.getBalance(wallet.address);
+      const balanceInEther = ethers.formatEther(balance);
+
+      const feeData = await provider.getFeeData();
+      if (balanceInEther < 1.0005) {
+        return {
+          tx: null,
+          success: false,
+          stop: true,
+          message: `Insufficient PHRS for mint. Need min ${1.0005} PHRS, have ${balanceInEther}`,
+        };
+      }
+      const pendingNonce = await provider.getTransactionCount(wallet.address, "pending");
+      const latestNonce = await provider.getTransactionCount(wallet.address, "latest");
+      if (pendingNonce > latestNonce) {
+        return {
+          tx: null,
+          success: false,
+          stop: false,
+          message: "There are pending transactions. Please wait for them to be completed.",
+        };
+      }
+      const calldata = this.createCalldata(wallet.address);
+      const valueInWei = ethers.parseEther("1");
+
+      // Send transaction
+      const tx = await wallet.sendTransaction({
+        to: "0x822483f6cf39b7dad66fec5f4feecbfd72172626",
+        data: calldata,
+        gasPrice: feeData.gasPrice,
+        gasLimit: 1000000000,
+        nonce: latestNonce,
+        value: valueInWei,
+      });
+
+      await tx.wait(3);
+      return {
+        tx: tx.hash,
+        success: true,
+        message: `Mint OpenFi NFT successful! Transaction hash: ${EXPOLER}${tx.hash}`,
+      };
+    } catch (error) {
+      if (error.code === "NONCE_EXPIRED" || (error.message && error.message.includes("TX_REPLAY_ATTACK"))) {
+        return {
+          tx: null,
+          success: false,
+          stop: true,
+          message: "Nonce conflict detected. Please retry the transaction.",
+        };
+      }
+      return {
+        tx: null,
+        success: false,
+        stop: true,
+        message: `Error OpenFi NFT Badge: ${error.shortMessage ?? error.message}`,
+      };
+    }
+  }
+
+  async mintNFT(nftAddress) {
     try {
       const wallet = this.wallet;
       const provider = this.provider;
@@ -245,7 +305,7 @@ class MintService {
       const calldata = this.createCalldata(this.wallet.address);
 
       const params = {
-        to: "0x1da9f40036bee3fda37ddd9bff624e1125d8991d",
+        to: nftAddress,
         data: calldata,
         gasPrice: ethers.parseUnits("1.3", "gwei"),
         gasLimit: 1000000000,
@@ -259,7 +319,7 @@ class MintService {
       return {
         tx: tx.hash,
         success: true,
-        message: `Mint pharos badge successful! Transaction hash: ${EXPOLER}${tx.hash}`,
+        message: `Mint badge successful! Transaction hash: ${EXPOLER}${tx.hash}`,
       };
     } catch (error) {
       if (error.code === "NONCE_EXPIRED" || error.message.includes("TX_REPLAY_ATTACK")) {
@@ -274,7 +334,7 @@ class MintService {
         tx: null,
         success: false,
         stop: true,
-        message: `Error mint pharos: ${error.shortMessage ?? error.message}`,
+        message: `Error mint: ${error.shortMessage ?? error.message}`,
       };
     }
   }

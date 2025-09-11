@@ -572,7 +572,7 @@ Issued At: ${time}`;
           const resSend = await transferService.sendAllToken({ recipientAddress });
           if (resSend.success) {
             this.log(resSend.message, "success");
-            await this.handleverifyTaskWithHash({ address: this.itemData.address, taskId: 103, txHash: resSend.tx });
+            // await this.handleverifyTaskWithHash({ address: this.itemData.address, taskId: 103, txHash: resSend.tx });
           } else {
             this.log(resSend.message, "warning");
           }
@@ -612,7 +612,7 @@ Issued At: ${time}`;
 
             if (resSend.success) {
               this.log(resSend.message, "success");
-              await this.handleverifyTaskWithHash({ address: this.itemData.address, taskId: 103, txHash: resSend.tx });
+              // await this.handleverifyTaskWithHash({ address: this.itemData.address, taskId: 103, txHash: resSend.tx });
             } else {
               this.log(resSend.message, "warning");
               if (resSend?.stop) {
@@ -650,30 +650,19 @@ Issued At: ${time}`;
       let current = limit;
 
       for (const nft of settings.LIST_NFT_MINT) {
-        if (nft !== "gotchip") {
+        if (nft !== "0x0000000038f050528452d6da1e7aacfa7b3ec0a8") {
           current = 1;
           limit = 1;
         }
         while (current > 0) {
-          this.log(`[${current}/${limit}] Minting ${nft} NFT...`);
+          this.log(`[${current}/${limit}] Minting NFT address: ${nft} ...`);
           try {
             let result = null;
-            if (nft == "gotchip") {
+
+            if (nft == "0x0000000038f050528452d6da1e7aacfa7b3ec0a8") {
               result = await mintService.mintGotChip();
-            } else if (nft == "grandline") {
-              result = await mintService.mintGrandline();
-            } else if (nft == "pharos_badge") {
-              result = await mintService.mintPharosBadge();
-            } else if (nft == "faros_badge") {
-              result = await mintService.mintFarosBadge();
-            } else if (nft == "zentra") {
-              result = await mintService.mintZentra();
-            } else if (nft == "spout") {
-              result = await mintService.mintSpout();
-            } else {
-              this.log(`Unknown NFT type: ${nft}`, "error");
-              break;
-            }
+            } else result = await mintService.mintNFT(nft);
+
             if (result.success) {
               this.log(result.message, "success");
             } else {
