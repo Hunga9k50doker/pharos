@@ -17,6 +17,7 @@ const { solveCaptcha } = require("./utils/captcha.js");
 const { checkBalance } = require("./utils/contract.js");
 const wallets = loadData("wallets.txt");
 const usernameXs = loadData("usernameXs.txt");
+const refcodes = loadData("refcodes.txt");
 
 const AddLpService = require("./utils/liqulity.js");
 const TransferService = require("./utils/transfer.js");
@@ -24,6 +25,9 @@ const MintService = require("./utils/mint.js");
 const SwapService = require("./utils/swap.js");
 const MintNameService = require("./utils/mint.domain.js");
 const AquaFluxService = require("./utils/aquaflux.js");
+const { BitverseServices } = require("./utils/bit.js");
+const { StakingSevices } = require("./utils/autoStaking.js");
+const { SpoutServices } = require("./utils/spout.js");
 
 // const querystring = require("querystring");
 class ClientAPI {
@@ -281,7 +285,7 @@ Issued At: ${time}`;
       chain_id: "688688",
       timestamp: time,
       domain: "testnet.pharosnetwork.xyz",
-      invite_code: settings.REF_CODE,
+      invite_code: getRandomElement(refcodes) || settings.REF_CODE,
     };
 
     return this.makeRequest(`${this.baseURL}/user/login`, "post", payload, { isAuth: true });
@@ -662,7 +666,24 @@ Issued At: ${time}`;
             if (nft == "0x0000000038f050528452d6da1e7aacfa7b3ec0a8") {
               result = await mintService.mintGotChip();
             } else result = await mintService.mintNFT(nft);
-
+            // if (nft == "gotchip") {
+            //   result = await mintService.mintGotChip();
+            // } else if (nft == "grandline") {
+            //   result = await mintService.mintGrandline();
+            // } else if (nft == "pharos_badge") {
+            //   result = await mintService.mintPharosBadge();
+            // } else if (nft == "faros_badge") {
+            //   result = await mintService.mintFarosBadge();
+            // } else if (nft == "zentra") {
+            //   result = await mintService.mintZentra();
+            // } else if (nft == "spout") {
+            //   result = await mintService.mintSpout();
+            // } else if (nft == "open_fi") {
+            //   result = await mintService.mintOpenFi();
+            // } else {
+            //   this.log(`Unknown NFT type: ${nft}`, "error");
+            //   break;
+            // }
             if (result.success) {
               this.log(result.message, "success");
             } else {
@@ -715,6 +736,48 @@ Issued At: ${time}`;
       }
     }
 
+    //swap
+    if (settings.AUTO_STAKING) {
+      const sw = new StakingSevices({ ...prams, log: (mess, type) => this.log(mess, type) });
+      let limit = settings.NUMBER_STAKING;
+      let current = limit;
+      while (current > 0) {
+        let amount = getRandomNumber(settings.AMOUNT_STAKING[0], settings.AMOUNT_STAKING[1], 6);
+        try {
+          const result = await sw.performAutoStakingTask({ amount });
+        } catch (error) {
+          this.log(`Err staking token: ${error.message}`, "warning");
+        }
+        current--;
+        if (current > 0) {
+          const timesleep = getRandomNumber(settings.DELAY_BETWEEN_REQUESTS[0], settings.DELAY_BETWEEN_REQUESTS[1]);
+          this.log(`[${current}/${limit}] Delay ${timesleep}s to next transaction...`);
+          await sleep(timesleep);
+        }
+      }
+    }
+
+    //bitverse
+    if (settings.AUTO_BITVERSE) {
+      const sw = new BitverseServices({ ...prams, log: (mess, type) => this.log(mess, type) });
+      let amount = getRandomNumber(settings.AMOUNT_TRADE[0], settings.AMOUNT_TRADE[1], 6);
+      try {
+        const result = await sw.performBitverseServices({ amount });
+      } catch (error) {
+        this.log(`Err bitverser services: ${error.message}`, "warning");
+      }
+    }
+
+    //spout
+    if (settings.AUTO_SPOUT) {
+      const sw = new SpoutServices({ ...prams, log: (mess, type) => this.log(mess, type) });
+      try {
+        const result = await sw.performSpoutTask();
+      } catch (error) {
+        this.log(`Err spout services: ${error.message}`, "warning");
+      }
+    }
+
     // liqulity pool
     if (settings.AUTO_ADDLP) {
       this.log(`Starting add liquidity pool...`);
@@ -725,14 +788,6 @@ Issued At: ${time}`;
 
       try {
         const result = await addlp.performMultipleLPs(prsLP);
-        // const result = await addlp.addLiquidity(prsLP);
-
-        // if (result && result?.length > 0) {
-        //   for (const tx of result) {
-        //     await sleep(3);
-        //     await this.handleverifyTaskWithHash({ address: this.itemData.address, taskId: 102, txHash: tx });
-        //   }
-        // }
       } catch (error) {
         this.log(`Err add liquility: ${error.message}`, "warning");
       }

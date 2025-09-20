@@ -1,219 +1,535 @@
-const { ethers } = require('ethers');
-const fs = require('fs');
-const path = require('path');
+const { ethers } = require("ethers");
+const axios = require("axios");
+const settings = require("../config/config");
+const { getRandomNumber, sleep } = require("./utils");
 
-const networkConfig = {
-    name: "Pharos Testnet",
-    chainId: 688688,
-    rpcUrl: "https://testnet.dplabs-internal.com",
-};
+// Pharos Testnet configuration
+const RPC_URL = "https://testnet.dplabs-internal.com";
+const CHAIN_ID = 688688;
+const KYC_API_URL = "https://www.spout.finance/api/kyc-signature";
 
-const MAX_RETRIES = 50;
-const RETRY_DELAY_MS = 15000;
-const TIMEOUT_MS = 300000;
+// Contract addresses
+const IDENTITY_FACTORY_CONTRACT = "0x18cB5F2774a80121d1067007933285B32516226a";
+const GATEWAY_CONTRACT = "0x126F0c11F3e5EafE37AB143D4AA688429ef7DCB3";
+const ORDERS_CONTRACT = "0x81b33972f8bdf14fD7968aC99CAc59BcaB7f4E9A";
+const USDC_CONTRACT = "0x72df0bcd7276f2dFbAc900D1CE63c272C4BCcCED";
+const RWA_TOKEN_CONTRACT = "0x54b753555853ce22f66Ac8CB8e324EB607C4e4eE";
 
-const CONTRACT_ADDRESS = "0x96381ed3fcfb385cbacfe6908159f0905b19767a";
+// ABIs
+const SPOUT_CONTRACT_ABI = [
+  {
+    type: "function",
+    name: "getIdentity",
+    stateMutability: "view",
+    inputs: [{ internalType: "address", name: "_wallet", type: "address" }],
+    outputs: [{ internalType: "address", name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "getClaimIdsByTopic",
+    stateMutability: "view",
+    inputs: [{ internalType: "uint256", name: "_topic", type: "uint256" }],
+    outputs: [{ internalType: "bytes32[]", name: "claimIds", type: "bytes32[]" }],
+  },
+  {
+    type: "function",
+    name: "deployIdentityForWallet",
+    stateMutability: "nonpayable",
+    inputs: [{ internalType: "address", name: "identityOwner", type: "address" }],
+    outputs: [{ internalType: "address", name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "addClaim",
+    stateMutability: "nonpayable",
+    inputs: [
+      { internalType: "uint256", name: "_topic", type: "uint256" },
+      { internalType: "uint256", name: "_scheme", type: "uint256" },
+      { internalType: "address", name: "_issuer", type: "address" },
+      { internalType: "bytes", name: "_signature", type: "bytes" },
+      { internalType: "bytes", name: "_data", type: "bytes" },
+      { internalType: "string", name: "_uri", type: "string" },
+    ],
+    outputs: [{ internalType: "bytes32", name: "claimRequestId", type: "bytes32" }],
+  },
+  {
+    type: "function",
+    name: "buyAsset",
+    stateMutability: "nonpayable",
+    inputs: [
+      { internalType: "uint256", name: "adfsFeedId", type: "uint256" },
+      { internalType: "string", name: "ticker", type: "string" },
+      { internalType: "address", name: "token", type: "address" },
+      { internalType: "uint256", name: "usdcAmount", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "sellAsset",
+    stateMutability: "nonpayable",
+    inputs: [
+      { internalType: "uint256", name: "adfsFeedId", type: "uint256" },
+      { internalType: "string", name: "ticker", type: "string" },
+      { internalType: "address", name: "token", type: "address" },
+      { internalType: "uint256", name: "tokenAmount", type: "uint256" },
+    ],
+    outputs: [],
+  },
+];
 
-const BYTES_TEMPLATE = "0x84bb1e42000000000000000000000000{WALLET_ADDRESS}0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000de0b6b3a764000000000000000000000000000000000000000000000000000000000000000000c0000000000000000000000000000000000000000000000000000000000000016000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+const USDC_ABI = [
+  {
+    inputs: [
+      { internalType: "address", name: "_spender", type: "address" },
+      { internalType: "uint256", name: "_value", type: "uint256" },
+    ],
+    name: "approve",
+    outputs: [{ internalType: "bool", name: "", type: "bool" }],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "address", name: "_owner", type: "address" }],
+    name: "balanceOf",
+    outputs: [{ internalType: "uint256", name: "balance", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "decimals",
+    outputs: [{ internalType: "uint8", name: "", type: "uint8" }],
+    stateMutability: "view",
+    type: "function",
+  },
+];
 
-function log(message, type = 'info') {
-    const timestamp = new Date().toISOString();
-    const colors = {
-        info: '\x1b[36m',
-        success: '\x1b[32m',
-        warning: '\x1b[33m',
-        error: '\x1b[31m',
-        reset: '\x1b[0m'
+const RWA_TOKEN_ABI = [
+  {
+    inputs: [
+      { internalType: "address", name: "_spender", type: "address" },
+      { internalType: "uint256", name: "_value", type: "uint256" },
+    ],
+    name: "approve",
+    outputs: [{ internalType: "bool", name: "", type: "bool" }],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "address", name: "_owner", type: "address" }],
+    name: "balanceOf",
+    outputs: [{ internalType: "uint256", name: "balance", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "decimals",
+    outputs: [{ internalType: "uint8", name: "", type: "uint8" }],
+    stateMutability: "view",
+    type: "function",
+  },
+];
+
+const ORDERS_ABI = [
+  {
+    inputs: [
+      { internalType: "uint256", name: "adfsFeedId", type: "uint256" },
+      { internalType: "string", name: "ticker", type: "string" },
+      { internalType: "address", name: "token", type: "address" },
+      { internalType: "uint256", name: "usdcAmount", type: "uint256" },
+    ],
+    name: "buyAsset",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "uint256", name: "feedId", type: "uint256" },
+      { internalType: "string", name: "ticker", type: "string" },
+      { internalType: "address", name: "token", type: "address" },
+      { internalType: "uint256", name: "tokenAmount", type: "uint256" },
+    ],
+    name: "sellAsset",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+];
+
+class SpoutServices {
+  constructor({ log, makeRequest, provider, wallet }) {
+    this.wallet = wallet;
+    this.provider = provider;
+    this.makeRequest = makeRequest;
+    this.log = log;
+    this.baseApiUrl = null;
+    this.authToken = null;
+    this.ZERO_CONTRACT_ADDRESS = "0x0000000000000000000000000000000000000000";
+    this.USDC_CONTRACT_ADDRESS = "0x72df0bcd7276f2dFbAc900D1CE63c272C4BCcCED";
+    this.SLQD_CONTRACT_ADDRESS = "0x54b753555853ce22f66Ac8cB8e324EB607C4e4eE";
+    this.GATEWAY_ROUTER_ADDRESS = "0x126F0c11F3e5EafE37AB143D4AA688429ef7DCB3";
+    this.FACTORY_ROUTER_ADDRESS = "0x18cB5F2774a80121d1067007933285B32516226a";
+    this.ISSUER_ROUTER_ADDRESS = "0xA5C77b623BEB3bC0071fA568de99e15Ccc06C7cb";
+    this.ORDERS_ROUTER_ADDRESS = "0x81b33972f8bdf14fD7968aC99CAc59BcaB7f4E9A";
+  }
+
+  async getKYCSignature(userAddress, onchainId) {
+    const payload = {
+      userAddress,
+      onchainIDAddress: onchainId,
+      claimData: "KYC passed",
+      topic: 1,
+      countryCode: 91,
     };
-    
-    console.log(`${colors[type]}[${timestamp}] ${message}${colors.reset}`);
-}
 
-function withTimeout(promise, timeoutMs, errorMessage) {
-    return Promise.race([
-        promise,
-        new Promise((_, reject) => {
-            setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
-        })
-    ]);
-}
-
-class TimeoutError extends Error {
-    constructor(message) {
-        super(message);
-        this.name = 'TimeoutError';
-    }
-}
-
-async function waitForTransaction(tx, maxRetries = MAX_RETRIES, retryDelayMs = RETRY_DELAY_MS) {
-    const provider = tx.provider;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            log(`Đang chờ xác nhận giao dịch ${tx.hash} (Thử lần ${attempt}/${maxRetries})`, 'info');
-            const receipt = await withTimeout(
-                provider.getTransactionReceipt(tx.hash),
-                TIMEOUT_MS,
-                `Fetching transaction receipt ${tx.hash} timed out`
-            );
-
-            if (receipt) {
-                if (receipt.status === 1) {
-                    log(`Giao dịch xác nhận thành công. Block: ${receipt.blockNumber}, Gas sử dụng: ${receipt.gasUsed.toString()}`, 'success');
-                    return receipt;
-                } else {
-                    throw new Error(`Giao dịch ${tx.hash} thất bại (status: ${receipt.status})`);
-                }
-            }
-
-            log(`Giao dịch ${tx.hash} chưa được xác nhận, chờ ${retryDelayMs / 1000} giây...`, 'warning');
-            await new Promise(resolve => setTimeout(resolve, retryDelayMs));
-        } catch (error) {
-            const isRetryableError =
-                error instanceof TimeoutError ||
-                error.code === -32008 ||
-                error.error?.code === -32008 ||
-                (error.code === 'UNKNOWN_ERROR' && error.error?.code === -32008);
-
-            log(`Thử lần ${attempt}/${maxRetries} thất bại khi chờ xác nhận giao dịch ${tx.hash}: ${error.message} (Code: ${error.code || error.name}, Error Code: ${error.error?.code || 'N/A'})`, 'error');
-
-            if (isRetryableError && attempt < maxRetries) {
-                log(`Lỗi -32008 hoặc Timeout, thử lại sau ${retryDelayMs / 1000} giây...`, 'warning');
-                await new Promise(resolve => setTimeout(resolve, retryDelayMs));
-                continue;
-            }
-
-            log(`Lỗi không thể thử lại hoặc đã hết lần thử: ${error.message}`, 'error');
-            throw error;
-        }
-    }
-    throw new Error(`Không thể lấy biên nhận giao dịch ${tx.hash} sau ${maxRetries} lần thử`);
-}
-
-function readPrivateKeys() {
     try {
-        const walletFile = path.join(__dirname, 'wallet.txt');
-        const content = fs.readFileSync(walletFile, 'utf8');
-        const privateKeys = content.split('\n')
-            .map(line => line.trim())
-            .filter(line => line.length > 0);
-        
-        log(`Đã đọc ${privateKeys.length} private keys từ wallet.txt`, 'info');
-        return privateKeys;
+      const response = await this.makeRequest(KYC_API_URL, "post", payload, {
+        isAuth: true,
+      });
+
+      if (response.status === 200) {
+        return response.data;
+      } else {
+        this.log(`Warning: KYC API error: ${response.status}, using fallback`, "warning");
+        return this.getFallbackKYCData();
+      }
     } catch (error) {
-        log(`Lỗi đọc file wallet.txt: ${error.message}`, 'error');
-        throw error;
+      this.log(`Warning: Using fallback KYC data: ${error.message}`, "warning");
+      return this.getFallbackKYCData();
     }
-}
+  }
 
-function createCalldata(walletAddress) {
-    const cleanAddress = walletAddress.replace('0x', '').toLowerCase();
-    return BYTES_TEMPLATE.replace('{WALLET_ADDRESS}', cleanAddress);
-}
+  getFallbackKYCData() {
+    return {
+      signature: {
+        r: "0xb2e2622d765ed8c5ba78ffa490cecd95693571031b3954ca429925e69ed15f57",
+        s: "0x614a040deef613d026382a9f745ff13963a75ff8a6f4032b177350a25364f8c4",
+        v: 28,
+      },
+      issuerAddress: "0x92b9baA72387Fb845D8Fe88d2a14113F9cb2C4E7",
+      dataHash: "0x7de3cf25b2741629c9158f89f92258972961d4357b9f027487765f655caec367",
+      topic: 1,
+    };
+  }
 
-async function executeTransaction(provider, privateKey, index) {
+  async createIdentity(wallet) {
     try {
-        const wallet = new ethers.Wallet(privateKey, provider);
-        const address = wallet.address;
-        
-        log(`[Ví ${index + 1}] Bắt đầu mint NFT từ ${address}`, 'info');
+      const contract = new ethers.Contract(IDENTITY_FACTORY_CONTRACT, SPOUT_CONTRACT_ABI, wallet);
+      const salt = `wallet_${wallet.address.toLowerCase()}_${Math.floor(Date.now() / 1000)}`;
 
-        const calldata = createCalldata(address);
+      this.log(`Creating identity with salt: ${salt}`);
 
-        const balance = await provider.getBalance(address);
-        const balanceInEther = ethers.formatEther(balance);
-        log(`[Ví ${index + 1}] Balance: ${balanceInEther} PHRS`, 'info');
+      const tx = await contract.deployIdentityForWallet(wallet.address, salt, {
+        gasLimit: 1000000,
+        gasPrice: ethers.parseUnits("1.25", "gwei"),
+      });
 
-        const valueInWei = ethers.parseEther("1");
-        if (balance < valueInWei) {
-            log(`[Ví ${index + 1}] Không đủ balance để thực hiện giao dịch. Cần ít nhất 1 PHRS`, 'error');
-            return false;
-        }
+      this.log(`Identity creation tx: ${tx.hash}`);
+      const receipt = await tx.wait();
 
-        const gasEstimate = await provider.estimateGas({
-            to: CONTRACT_ADDRESS,
-            data: calldata,
-            value: valueInWei,
-            from: address
-        });
-
-        const gasLimit = gasEstimate * 120n / 100n;
-
-        const feeData = await provider.getFeeData();
-        
-        log(`[Ví ${index + 1}] Gas estimate: ${gasEstimate.toString()}, Gas limit: ${gasLimit.toString()}, Gas price: ${ethers.formatUnits(feeData.gasPrice, 'gwei')} Gwei`, 'info');
-
-        const tx = await wallet.sendTransaction({
-            to: CONTRACT_ADDRESS,
-            data: calldata,
-            value: valueInWei,
-            gasLimit: gasLimit,
-            gasPrice: feeData.gasPrice
-        });
-
-        log(`[Ví ${index + 1}] Giao dịch mint NFT đã gửi: ${tx.hash}`, 'success');
-
-        const receipt = await waitForTransaction(tx);
-        
-        log(`[Ví ${index + 1}] NFT đã được mint thành công!`, 'success');
-        return true;
-
+      if (receipt.status === 1) {
+        this.log(`Success: Identity created | Confirmed: ${tx.hash}`, "success");
+        return receipt;
+      } else {
+        this.log(`Error: Identity creation failed`, "warning");
+        return null;
+      }
     } catch (error) {
-        log(`[Ví ${index + 1}] Lỗi thực hiện giao dịch mint NFT: ${error.message}`, 'error');
+      this.log(`Error: Creating identity: ${error.message}`, "warning");
+      return null;
+    }
+  }
+
+  async getOnchainId(provider, walletAddress) {
+    try {
+      const contract = new ethers.Contract(IDENTITY_FACTORY_CONTRACT, SPOUT_CONTRACT_ABI, provider);
+      const result = await contract.getIdentity(walletAddress);
+      if (result && result !== ethers.ZeroAddress) {
+        return result;
+      }
+      return null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  async addClaim(wallet, onchainId, kycResponse) {
+    try {
+      const contract = new ethers.Contract(onchainId, SPOUT_CONTRACT_ABI, wallet);
+
+      const { signature, issuerAddress, dataHash, topic } = kycResponse;
+      const { r, s, v } = signature;
+
+      const rHex = r.startsWith("0x") ? r.slice(2) : r;
+      const sHex = s.startsWith("0x") ? s.slice(2) : s;
+      const rPadded = rHex.padStart(64, "0");
+      const sPadded = sHex.padStart(64, "0");
+      const fullSignature = `0x${rPadded}${sPadded}${v.toString(16).padStart(2, "0")}`;
+      const dataBytes = dataHash;
+
+      this.log(`Adding KYC claim to identity: ${onchainId}`);
+
+      const tx = await contract.addClaim(topic, 1, issuerAddress, fullSignature, dataBytes, "", {
+        gasLimit: 800000,
+        gasPrice: ethers.parseUnits("1.25", "gwei"),
+      });
+
+      this.log(`KYC claim tx: ${tx.hash}`);
+      const receipt = await tx.wait();
+
+      if (receipt.status === 1) {
+        this.log(`Success: KYC claim added | Confirmed: ${tx.hash}`, "success");
+        return receipt;
+      } else {
+        this.log(`Error: KYC claim addition failed`, "warning");
+        return null;
+      }
+    } catch (error) {
+      this.log(`Error: Adding claim: ${error.message}`, "warning");
+      return null;
+    }
+  }
+
+  async performKYCProcess() {
+    const provider = this.provider;
+    const wallet = this.wallet;
+    const address = wallet.address;
+    let onchainId = await this.getOnchainId(provider, address);
+    if (onchainId) {
+      this.log(`Success: Identity already exists: ${onchainId}`, "success");
+    } else {
+      this.log(`Creating new identity`);
+      const receipt = await this.createIdentity(wallet);
+      if (!receipt) return false;
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      onchainId = await this.getOnchainId(provider, address);
+      if (!onchainId) {
+        this.log(`Error: Identity creation verification failed`, "warning");
         return false;
+      }
     }
-}
 
-async function main() {
+    this.log(`Getting KYC signature`);
+    const kycResponse = await this.getKYCSignature(address, onchainId);
+
     try {
-        log('Dân Cày Airdrop', 'info');
-        log(`Contract address: ${CONTRACT_ADDRESS}`, 'info');
-
-        const privateKeys = readPrivateKeys();
-
-        const provider = new ethers.JsonRpcProvider(networkConfig.rpcUrl, {
-            chainId: networkConfig.chainId,
-            name: networkConfig.name
-        });
-
-        const network = await provider.getNetwork();
-        log(`Kết nối thành công tới ${network.name} (Chain ID: ${network.chainId})`, 'success');
-
-        let successCount = 0;
-        let failCount = 0;
-
-        for (let i = 0; i < privateKeys.length; i++) {
-            const privateKey = privateKeys[i];
-            
-            if (i > 0) {
-                log(`Chờ 3 giây trước khi thực hiện giao dịch tiếp theo...`, 'info');
-                await new Promise(resolve => setTimeout(resolve, 3000));
-            }
-
-            const success = await executeTransaction(provider, privateKey, i);
-            if (success) {
-                successCount++;
-            } else {
-                failCount++;
-            }
-        }
-
-        log(`Hoàn thành mint NFT! Thành công: ${successCount}, Thất bại: ${failCount}`, 'success');
-
+      const contract = new ethers.Contract(onchainId, SPOUT_CONTRACT_ABI, provider);
+      const existingClaims = await contract.getClaimIdsByTopic(kycResponse.topic);
+      if (existingClaims.length > 0) {
+        this.log(`Success: KYC claim already exists`, "success");
+        return true;
+      }
     } catch (error) {
-        log(`Lỗi trong quá trình thực hiện: ${error.message}`, 'error');
-        process.exit(1);
+      this.log(`Warning: Error checking existing claims: ${error.message}`, "warning");
     }
+    this.log(`Adding KYC claim`);
+    await this.addClaim(wallet, onchainId, kycResponse);
+    return true;
+  }
+
+  async buyTokens(wallet, provider, amount) {
+    const address = wallet.address;
+
+    try {
+      const usdcContract = new ethers.Contract(USDC_CONTRACT, USDC_ABI, wallet);
+      const usdcBalance = await usdcContract.balanceOf(address);
+      const usdcDecimals = await usdcContract.decimals();
+      const usdcBalanceFormatted = Number(ethers.formatUnits(usdcBalance, usdcDecimals));
+
+      this.log(`USDC Balance: ${usdcBalanceFormatted.toFixed(2)} USDC`);
+
+      if (usdcBalanceFormatted < amount) {
+        this.log(`Error: Insufficient USDC balance for ${amount} USDC`, "warning");
+        return false;
+      }
+
+      // Check KYC status
+      const existingId = await this.getOnchainId(provider, address);
+      if (!existingId) {
+        this.log(`Error: No identity found - complete KYC first`, "warning");
+        return false;
+      }
+
+      const identityContract = new ethers.Contract(existingId, SPOUT_CONTRACT_ABI, provider);
+      const existingClaims = await identityContract.getClaimIdsByTopic(1);
+      if (existingClaims.length === 0) {
+        this.log(`Error: No KYC claim found - complete KYC first`, "warning");
+        return false;
+      }
+
+      const usdcAmountWei = ethers.parseUnits(amount.toString(), usdcDecimals);
+
+      // Reset allowance
+      this.log(`Resetting USDC allowance`);
+      const resetTx = await usdcContract.approve(ORDERS_CONTRACT, 0, {
+        gasLimit: 100000,
+        gasPrice: ethers.parseUnits("1.25", "gwei"),
+      });
+      await resetTx.wait();
+
+      // Approve
+      this.log(`Approving USDC spending`);
+      const approveTx = await usdcContract.approve(ORDERS_CONTRACT, usdcAmountWei, {
+        gasLimit: 100000,
+        gasPrice: ethers.parseUnits("1.25", "gwei"),
+      });
+      this.log(`Approval tx: ${approveTx.hash}`);
+      await approveTx.wait();
+
+      // Buy tokens
+      this.log(`Buying ${amount} USDC worth of RWA tokens`);
+      const ordersContract = new ethers.Contract(ORDERS_CONTRACT, ORDERS_ABI, wallet);
+      const feedIds = [2000002, 2000001];
+
+      for (const feedId of feedIds) {
+        try {
+          const buyTx = await ordersContract.buyAsset(feedId, "LQD", RWA_TOKEN_CONTRACT, usdcAmountWei, {
+            gasLimit: 800000,
+            gasPrice: ethers.parseUnits("1.25", "gwei"),
+          });
+
+          this.log(`Buy tx: ${buyTx.hash}`);
+          const receipt = await buyTx.wait();
+
+          if (receipt.status === 1) {
+            this.log(`Success: Bought RWA tokens | Confirmed: ${buyTx.hash}`, "success");
+            return true;
+          }
+        } catch (buyError) {
+          this.log(`Warning: Buy failed with feedId ${feedId}: ${buyError.message}`, "warning");
+        }
+      }
+
+      this.log(`Error: All buy attempts failed`, "warning");
+      return false;
+    } catch (error) {
+      this.log(`Error: Buy tokens failed: ${error.message}`, "warning");
+      return false;
+    }
+  }
+
+  async sellTokens(wallet, provider, amount) {
+    const address = wallet.address;
+
+    try {
+      const rwaContract = new ethers.Contract(RWA_TOKEN_CONTRACT, RWA_TOKEN_ABI, wallet);
+      const tokenBalance = await rwaContract.balanceOf(address);
+      const tokenDecimals = await rwaContract.decimals();
+      const tokenBalanceFormatted = Number(ethers.formatUnits(tokenBalance, tokenDecimals));
+
+      this.log(`RWA Token Balance: ${tokenBalanceFormatted.toFixed(4)} LQD`);
+
+      if (tokenBalanceFormatted < amount) {
+        this.log(`Error: Insufficient token balance for ${amount} LQD`, "warning");
+        return false;
+      }
+
+      // Check KYC status
+      const existingId = await this.getOnchainId(provider, address);
+      if (!existingId) {
+        this.log(`Error: No identity found - complete KYC first`, "warning");
+        return false;
+      }
+
+      const tokenAmountWei = ethers.parseUnits(amount.toString(), tokenDecimals);
+
+      // Reset allowance
+      this.log(`Resetting token allowance`);
+      const resetTx = await rwaContract.approve(ORDERS_CONTRACT, 0, {
+        gasLimit: 100000,
+        gasPrice: ethers.parseUnits("1.25", "gwei"),
+      });
+      await resetTx.wait();
+
+      // Approve
+      this.log(`Approving token spending`);
+      const approveTx = await rwaContract.approve(ORDERS_CONTRACT, tokenAmountWei, {
+        gasLimit: 100000,
+        gasPrice: ethers.parseUnits("1.25", "gwei"),
+      });
+      this.log(`Approval tx: ${approveTx.hash}`);
+      await approveTx.wait();
+
+      // Sell tokens
+      this.log(`Selling ${amount} RWA tokens`);
+      const ordersContract = new ethers.Contract(ORDERS_CONTRACT, ORDERS_ABI, wallet);
+      const feedIds = [2000002, 2000001];
+
+      for (const feedId of feedIds) {
+        try {
+          const sellTx = await ordersContract.sellAsset(feedId, "LQD", RWA_TOKEN_CONTRACT, tokenAmountWei, {
+            gasLimit: 800000,
+            gasPrice: ethers.parseUnits("1.25", "gwei"),
+          });
+
+          this.log(`Sell tx: ${sellTx.hash}`);
+          const receipt = await sellTx.wait();
+
+          if (receipt.status === 1) {
+            this.log(`Success: Sold RWA tokens | Confirmed: ${sellTx.hash}`, "success");
+            return true;
+          }
+        } catch (sellError) {
+          this.log(`Warning: Sell failed with feedId ${feedId}: ${sellError.message}`, "warning");
+        }
+      }
+
+      this.log(`Error: All sell attempts failed`, "warning");
+      return false;
+    } catch (error) {
+      this.log(`Error: Sell tokens failed: ${error.message}`, "warning");
+      return false;
+    }
+  }
+
+  async performSpoutTask() {
+    this.log("Starting Spout Task...");
+    const provider = this.provider;
+    const wallet = this.wallet;
+    for (const option of settings.SPOUT_OPTIONS) {
+      if (option === "kyc") {
+        const balance = await provider.getBalance(wallet.address);
+        if (balance === 0n) {
+          this.log(`No balance, skipping KYC`, "warning");
+        } else {
+          await this.performKYCProcess();
+          this.log("KYC process completed!", "success");
+        }
+      } else if (["buy", "sell"].includes(option)) {
+        const transactionCount = getRandomNumber(settings.NUMBER_SPOUT[0], settings.NUMBER_SPOUT[1]);
+        for (let txNum = 1; txNum <= transactionCount; txNum++) {
+          this.log(`Starting transaction round ${txNum}/${transactionCount}`);
+
+          const randomAmount = getRandomNumber(settings.AMOUNT_SPOUT[0], settings.AMOUNT_SPOUT[1], 6);
+          this.log(`Transaction ${txNum}: Amount: ${randomAmount}`);
+
+          // Buy tokens if enabled
+          if (option == "buy") {
+            this.log(`Processing buy transaction ${txNum}`);
+            await this.buyTokens(wallet, provider, randomAmount);
+          }
+
+          // Sell tokens if enabled
+          if (option == "sell") {
+            this.log(`Processing sell transaction ${txNum}`);
+            await this.sellTokens(wallet, provider, randomAmount);
+          }
+
+          if (txNum < transactionCount) {
+            this.log(`Waiting ${randomDelay} seconds before next transaction round`);
+            const timesleep = getRandomNumber(settings.DELAY_BETWEEN_REQUESTS[0], settings.DELAY_BETWEEN_REQUESTS[1]);
+            this.log(`Waiting ${timesleep} seconds for next trade...`);
+            await sleep(timesleep);
+          }
+        }
+      } else {
+        return this.log(`Invalid option spout: ${option}`, "error");
+      }
+    }
+  }
 }
 
-if (require.main === module) {
-    main().catch(error => {
-        log(`Lỗi không xử lý được: ${error.message}`, 'error');
-        process.exit(1);
-    });
-}
-
-module.exports = {
-    main,
-    executeTransaction,
-    waitForTransaction
-};
+module.exports = { SpoutServices };

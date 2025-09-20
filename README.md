@@ -13,6 +13,7 @@ I am not `responsible` for the possibility of an account being `banned`!
 - Auto send (address or twitter)
 - Auto faucet
 - Auto swap
+- Auto bitverse
 - Auto add liquidity
 - Auto reff
 - Auto checkin
